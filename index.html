@@ -74,7 +74,7 @@ input[type=file]{display:none;}
 <!-- UPLOAD -->
 <div class="panel">
 <label class="blue">📁 PILIH PNG
-<input id="file" type="file" accept="image/png,image/webp,image/jpeg">
+<input id="file" type="file" accept="image/png,image/webp">
 </label>
 <button id="original">👁 ORIGINAL</button>
 <button id="reset">↺ RESET</button>
@@ -100,6 +100,7 @@ input[type=file]{display:none;}
 <button id="rig" class="orange">🦴 SHOW RIG</button>
 <button id="walk" class="green">▶ WALK</button>
 <button id="stop" class="red">■ STOP</button>
+<button id="editCuts" class="purple">✏ EDIT POTONGAN</button>
 <br>
 <button id="generate" class="blue">🎞 GENERATE 8 FRAME</button>
 <div class="row"><span>Speed</span><input id="speed" type="range" min="0.3" max="2" step="0.1" value="0.8"><b id="speedText">0.8</b></div>
@@ -355,6 +356,30 @@ function buildCutouts(){
       anchorY:box.y
     };
   });
+
+  // Hapus area lengan & kaki dari torso, supaya anggota gerak tidak
+  // ikut tersalin statis di balik versi yang berputar (efek "hantu").
+  const torsoBox=cutBoxes.torso;
+  const torsoCut=cutouts.torso;
+  if(torsoBox&&torsoCut){
+    const tctx=torsoCut.canvas.getContext("2d");
+    ["armL","armR","legL","legR"].forEach(function(key){
+      const limbBox=cutBoxes[key];
+      if(!limbBox)return;
+      // interseksi limbBox dengan torsoBox, dalam koordinat sumber
+      const ix=Math.max(torsoBox.x,limbBox.x);
+      const iy=Math.max(torsoBox.y,limbBox.y);
+      const ax=Math.min(torsoBox.x+torsoBox.w,limbBox.x+limbBox.w);
+      const ay=Math.min(torsoBox.y+torsoBox.h,limbBox.y+limbBox.h);
+      const iw=ax-ix, ih=ay-iy;
+      if(iw<=0||ih<=0)return;
+      // ke koordinat lokal canvas torso
+      const lx=Math.round(ix-torsoBox.x);
+      const ly=Math.round(iy-torsoBox.y);
+      tctx.clearRect(lx,ly,Math.ceil(iw),Math.ceil(ih));
+    });
+  }
+
   rigLocked=true;
   cutPanel.style.display="none";
   rigStatus.className="status ok";
@@ -512,6 +537,14 @@ document.getElementById("rig").addEventListener("click",function(){
   this.textContent=showRig?"🦴 HIDE RIG":"🦴 SHOW RIG";
   draw();
 });
+document.getElementById("editCuts").addEventListener("click",function(){
+  if(!source)return;
+  playing=false;
+  if(cutStep<0||cutStep>PARTS.length)cutStep=PARTS.length;
+  cutPanel.style.display="block";
+  updateCutUI();
+  draw();
+});
 document.getElementById("original").addEventListener("click",function(){
   if(!source)return;
   playing=false; phase=0;
@@ -525,8 +558,8 @@ document.getElementById("original").addEventListener("click",function(){
 
 /* ================= SLIDERS ================= */
 speedInput.addEventListener("input",function(){speedText.textContent=Number(speedInput.value).toFixed(1);});
-stepInput.addEventListener("input",function(){stepText.textContent=Number(stepInput.value).toFixed(2);});
-armInput.addEventListener("input",function(){armText.textContent=Number(armInput.value).toFixed(2);});
+stepInput.addEventListener("input",function(){stepText.textContent=Number(stepInput.value).toFixed(2);if(!playing)draw();});
+armInput.addEventListener("input",function(){armText.textContent=Number(armInput.value).toFixed(2);if(!playing)draw();});
 
 /* ================= ANIMATION LOOP ================= */
 function loop(now){
