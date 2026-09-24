@@ -173,6 +173,35 @@ input[type=file]{
   margin-top:10px;
 }
 
+.reviewBox{
+  width:160px;
+  aspect-ratio:1;
+  margin:10px auto 0;
+  overflow:hidden;
+  border-radius:10px;
+  border:1px solid #293548;
+
+  background:
+    linear-gradient(45deg,#171e29 25%,transparent 25%),
+    linear-gradient(-45deg,#171e29 25%,transparent 25%),
+    linear-gradient(45deg,transparent 75%,#171e29 75%),
+    linear-gradient(-45deg,transparent 75%,#171e29 75%);
+
+  background-size:16px 16px;
+
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+
+#reviewCanvas{
+  width:100%;
+  height:100%;
+  display:block;
+}
+
 .previewBox{
   aspect-ratio:1;
   overflow:hidden;
@@ -401,6 +430,19 @@ id="preview"
 class="preview">
 </div>
 
+<div class="reviewBox">
+<canvas id="reviewCanvas" width="350" height="350"></canvas>
+</div>
+
+<button
+id="reviewToggle"
+class="purple"
+style="display:block;margin:8px auto 0;">
+
+▶ REVIEW GERAKAN
+
+</button>
+
 <div
 id="spriteStatus"
 class="status">
@@ -476,6 +518,15 @@ document.getElementById("lockRig");
 const resetRigPosBtn=
 document.getElementById("resetRigPos");
 
+const reviewCanvas=
+document.getElementById("reviewCanvas");
+
+const reviewCtx=
+reviewCanvas.getContext("2d");
+
+const reviewToggleBtn=
+document.getElementById("reviewToggle");
+
 
 /* =====================================================
 STATE
@@ -511,6 +562,18 @@ let rigPlacing=false;
 let draftBones=[];
 
 let dragIndex=null;
+
+/*
+  Sprite review playback state.
+*/
+
+let generatedFrames=[];
+
+let reviewPlaying=false;
+
+let reviewIndex=0;
+
+let reviewTimer=0;
 
 
 /*
@@ -2459,11 +2522,109 @@ function loop(now){
   }
 
 
+  if(
+    reviewPlaying&&
+    generatedFrames.length>0
+  ){
+
+    const frameInterval=
+    .15/
+    Number(
+      speedInput.value
+    );
+
+
+    reviewTimer+=dt;
+
+
+    while(
+      reviewTimer>=
+      frameInterval
+    ){
+
+      reviewTimer-=
+      frameInterval;
+
+      reviewIndex=
+      (reviewIndex+1)%
+      generatedFrames.length;
+
+    }
+
+
+    drawReviewFrame();
+
+  }
+
+
   requestAnimationFrame(
     loop
   );
 
 }
+
+
+/* =====================================================
+DRAW REVIEW FRAME
+===================================================== */
+
+function drawReviewFrame(){
+
+  reviewCtx.clearRect(
+    0,
+    0,
+    reviewCanvas.width,
+    reviewCanvas.height
+  );
+
+
+  if(generatedFrames.length===0)
+    return;
+
+
+  reviewCtx.drawImage(
+    generatedFrames[reviewIndex],
+    0,
+    0
+  );
+
+}
+
+
+/* =====================================================
+REVIEW TOGGLE
+===================================================== */
+
+reviewToggleBtn.addEventListener(
+"click",
+function(){
+
+  if(generatedFrames.length===0){
+
+    spriteStatus.className=
+    "status err";
+
+    spriteStatus.innerHTML=
+    "Generate 8 frame dahulu.";
+
+    return;
+
+  }
+
+
+  reviewPlaying=
+  !reviewPlaying;
+
+
+  reviewToggleBtn.textContent=
+  reviewPlaying
+  ? "■ STOP REVIEW"
+  : "▶ REVIEW GERAKAN";
+
+
+  reviewTimer=0;
+
+});
 
 
 requestAnimationFrame(
@@ -2561,6 +2722,17 @@ document
 
   playing=false;
 
+  reviewPlaying=false;
+
+  reviewIndex=0;
+
+  reviewTimer=0;
+
+  generatedFrames=[];
+
+  reviewToggleBtn.textContent=
+  "▶ REVIEW GERAKAN";
+
   preview.innerHTML="";
 
 
@@ -2608,6 +2780,11 @@ document
     makeFrame(
       i/frameCount,
       frameSize
+    );
+
+
+    generatedFrames.push(
+      frame
     );
 
 
@@ -2675,6 +2852,9 @@ document
   spriteSheet.width+
   " × "+
   spriteSheet.height+" px.";
+
+
+  drawReviewFrame();
 
 });
 
@@ -2780,6 +2960,24 @@ document
   phase=0;
 
   spriteSheet=null;
+
+  generatedFrames=[];
+
+  reviewPlaying=false;
+
+  reviewIndex=0;
+
+  reviewTimer=0;
+
+  reviewToggleBtn.textContent=
+  "▶ REVIEW GERAKAN";
+
+  reviewCtx.clearRect(
+    0,
+    0,
+    reviewCanvas.width,
+    reviewCanvas.height
+  );
 
   preview.innerHTML="";
 
