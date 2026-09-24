@@ -125,6 +125,8 @@ input[type=file]{display:none;}
 /* ================= ELEMENTS ================= */
 const canvas=document.getElementById("canvas");
 const ctx=canvas.getContext("2d");
+ctx.imageSmoothingEnabled=true;
+ctx.imageSmoothingQuality="high";
 const fileInput=document.getElementById("file");
 const statusBox=document.getElementById("status");
 const rigStatus=document.getElementById("rigStatus");
@@ -199,12 +201,14 @@ fileInput.addEventListener("change",function(e){
 
 function createSource(img){
   let w=img.naturalWidth, h=img.naturalHeight;
-  const max=500;
+  const max=900;
   const scale=Math.min(1,max/Math.max(w,h));
   w=Math.round(w*scale); h=Math.round(h*scale);
   source=document.createElement("canvas");
   source.width=w; source.height=h;
   const sctx=source.getContext("2d");
+  sctx.imageSmoothingEnabled=true;
+  sctx.imageSmoothingQuality="high";
   sctx.clearRect(0,0,w,h);
   sctx.drawImage(img,0,0,w,h);
   bounds=getBounds();
@@ -340,6 +344,41 @@ resetCutBtn.addEventListener("click",function(){
 });
 
 /* ================= BUILD CUTOUTS ================= */
+function featherEdges(canvas,feather){
+  const w=canvas.width,h=canvas.height;
+  if(feather<=0||w<=feather*2||h<=feather*2)return;
+  const mask=document.createElement("canvas");
+  mask.width=w; mask.height=h;
+  const mctx=mask.getContext("2d");
+  mctx.fillStyle="#fff";
+  mctx.fillRect(0,0,w,h);
+  const blurred=document.createElement("canvas");
+  blurred.width=w; blurred.height=h;
+  const bctx=blurred.getContext("2d");
+  bctx.filter="blur("+feather+"px)";
+  bctx.drawImage(mask,0,0);
+  const cctx=canvas.getContext("2d");
+  cctx.save();
+  cctx.globalCompositeOperation="destination-in";
+  cctx.drawImage(blurred,0,0);
+  cctx.restore();
+}
+
+function clearRectFeathered(canvas,x,y,w,h,feather){
+  const cctx=canvas.getContext("2d");
+  if(feather<=0){cctx.clearRect(x,y,w,h);return;}
+  const mask=document.createElement("canvas");
+  mask.width=canvas.width; mask.height=canvas.height;
+  const mctx=mask.getContext("2d");
+  mctx.filter="blur("+feather+"px)";
+  mctx.fillStyle="#fff";
+  mctx.fillRect(x,y,w,h);
+  cctx.save();
+  cctx.globalCompositeOperation="destination-out";
+  cctx.drawImage(mask,0,0);
+  cctx.restore();
+}
+
 function buildCutouts(){
   PARTS.forEach(function(p){
     const box=cutBoxes[p.key];
@@ -347,7 +386,11 @@ function buildCutouts(){
     c.width=Math.max(1,Math.round(box.w));
     c.height=Math.max(1,Math.round(box.h));
     const cctx=c.getContext("2d");
+    cctx.imageSmoothingEnabled=true;
+    cctx.imageSmoothingQuality="high";
     cctx.drawImage(source,box.x,box.y,box.w,box.h,0,0,c.width,c.height);
+    const feather=Math.min(10,Math.max(2,Math.round(Math.min(c.width,c.height)*0.035)));
+    featherEdges(c,feather);
     cutouts[p.key]={
       canvas:c,
       w:box.w,
@@ -376,8 +419,11 @@ function buildCutouts(){
       // ke koordinat lokal canvas torso
       const lx=Math.round(ix-torsoBox.x);
       const ly=Math.round(iy-torsoBox.y);
-      tctx.clearRect(lx,ly,Math.ceil(iw),Math.ceil(ih));
+      const feather=Math.min(8,Math.max(2,Math.round(Math.min(iw,ih)*0.08)));
+      clearRectFeathered(torsoCut.canvas,lx,ly,Math.ceil(iw),Math.ceil(ih),feather);
     });
+    const torsoFeather=Math.min(10,Math.max(2,Math.round(Math.min(torsoCut.canvas.width,torsoCut.canvas.height)*0.02)));
+    featherEdges(torsoCut.canvas,torsoFeather);
   }
 
   rigLocked=true;
@@ -609,6 +655,8 @@ function makeFrame(framePhase,size){
   const frame=document.createElement("canvas");
   frame.width=size; frame.height=size;
   const fctx=frame.getContext("2d");
+  fctx.imageSmoothingEnabled=true;
+  fctx.imageSmoothingQuality="high";
   const pose=computePose(framePhase,Number(stepInput.value),Number(armInput.value));
   renderScene(fctx,size,pose);
   return frame;
@@ -627,7 +675,7 @@ document.getElementById("generate").addEventListener("click",function(){
   reviewToggleBtn.textContent="▶ REVIEW GERAKAN";
   preview.innerHTML="";
 
-  const frameSize=350, frameCount=8;
+  const frameSize=500, frameCount=8;
   spriteSheet=document.createElement("canvas");
   spriteSheet.width=frameSize*frameCount;
   spriteSheet.height=frameSize;
