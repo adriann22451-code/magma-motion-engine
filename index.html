@@ -410,28 +410,14 @@ function buildCutouts(){
     };
   });
 
-  // Hapus area lengan & kaki dari torso, supaya anggota gerak tidak
-  // ikut tersalin statis di balik versi yang berputar (efek "hantu").
-  const torsoBox=cutBoxes.torso;
+  // Catatan: sebelumnya di sini area lengan/kaki dihapus dari torso untuk
+  // menghindari duplikat statis ("ghost limb"). Ternyata untuk karakter
+  // humanoid, kotak lengan (bahu→tangan) dan kaki (pinggul→kaki) hampir
+  // selalu menutupi hampir seluruh badan di bawah kepala, jadi penghapusan
+  // itu membuat sebagian besar torso hilang. Torso dikembalikan utuh;
+  // hanya tepi luarnya yang dilunakkan sedikit.
   const torsoCut=cutouts.torso;
-  if(torsoBox&&torsoCut){
-    const tctx=torsoCut.canvas.getContext("2d");
-    ["armL","armR","legL","legR"].forEach(function(key){
-      const limbBox=cutBoxes[key];
-      if(!limbBox)return;
-      // interseksi limbBox dengan torsoBox, dalam koordinat sumber
-      const ix=Math.max(torsoBox.x,limbBox.x);
-      const iy=Math.max(torsoBox.y,limbBox.y);
-      const ax=Math.min(torsoBox.x+torsoBox.w,limbBox.x+limbBox.w);
-      const ay=Math.min(torsoBox.y+torsoBox.h,limbBox.y+limbBox.h);
-      const iw=ax-ix, ih=ay-iy;
-      if(iw<=0||ih<=0)return;
-      // ke koordinat lokal canvas torso
-      const lx=Math.round(ix-torsoBox.x);
-      const ly=Math.round(iy-torsoBox.y);
-      const feather=Math.min(8,Math.max(2,Math.round(Math.min(iw,ih)*0.08)));
-      clearRectFeathered(torsoCut.canvas,lx,ly,Math.ceil(iw),Math.ceil(ih),feather,0.6);
-    });
+  if(torsoCut){
     const torsoFeather=Math.min(10,Math.max(2,Math.round(Math.min(torsoCut.canvas.width,torsoCut.canvas.height)*0.02)));
     featherEdges(torsoCut.canvas,torsoFeather);
   }
