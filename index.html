@@ -91,8 +91,9 @@ input[type=file]{display:none;}
 <div class="stepList" id="stepList"></div>
 <div class="info" id="cutHint">—</div>
 <button id="undoCut" class="orange">◀ ULANGI BAGIAN INI</button>
+<button id="skipPart" class="orange" style="display:none;">⏭ LEWATI (TIDAK ADA)</button>
 <button id="resetCut" class="red">↺ RESET SEMUA POTONGAN</button>
-<div id="cutStatus" class="status">Mulai dengan menarik kotak di gambar.</div>
+<div id="cutStatus" class="status">Mulai dengan menarik kotak di gambar. Tap chip nama bagian yang sudah selesai untuk gambar ulang kotaknya.</div>
 </div>
 
 <!-- CONTROLS -->
@@ -143,6 +144,7 @@ const cutHint=document.getElementById("cutHint");
 const cutStatus=document.getElementById("cutStatus");
 const stepList=document.getElementById("stepList");
 const undoCutBtn=document.getElementById("undoCut");
+const skipPartBtn=document.getElementById("skipPart");
 const resetCutBtn=document.getElementById("resetCut");
 const reviewCanvas=document.getElementById("reviewCanvas");
 const reviewCtx=reviewCanvas.getContext("2d");
@@ -158,13 +160,15 @@ let lastTime=performance.now();
 let spriteSheet=null;
 
 const PARTS=[
-  {key:"torso",label:"Torso+Kepala",hint:"Tarik kotak mengelilingi seluruh badan & kepala. Boleh sedikit lebih besar dari badan asli."},
+  {key:"torso",label:"Torso+Kepala",hint:"Tarik kotak mengelilingi SELURUH badan: kepala, dada, perut, sampai pinggul. Boleh lebih besar dari badan asli, boleh menutupi lengan/kaki juga — itu aman."},
   {key:"armL",label:"Lengan A",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
   {key:"armR",label:"Lengan B",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
   {key:"legL",label:"Kaki A",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
-  {key:"legR",label:"Kaki B",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai UJUNG KAKI."}
+  {key:"legR",label:"Kaki B",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
+  {key:"tail",label:"Ekor",hint:"Mulai dari PANGKAL EKOR (dekat badan), tarik sampai UJUNG EKOR. Kalau tidak ada ekor, tekan LEWATI.",optional:true}
 ];
 
+let editKey=null; // key bagian yang sedang digambar ulang di luar urutan normal
 let cutStep=-1; // -1 = not cutting / done
 let cutBoxes={};
 let cutouts={};
@@ -256,6 +260,7 @@ function canvasToSource(pt){
 /* ================= CUTOUT STATE HELPERS ================= */
 function resetCutoutState(){
   cutStep=-1;
+  editKey=null;
   cutBoxes={};
   cutouts={};
   rigLocked=false;
@@ -275,27 +280,52 @@ function resetCutoutState(){
 function updateCutUI(){
   stepList.innerHTML="";
   PARTS.forEach(function(p,i){
+    const isDone=cutBoxes[p.key]!==undefined;
+    const clickable=isDone||i<cutStep||cutStep>=PARTS.length;
     const chip=document.createElement("div");
-    chip.className="stepChip"+(i<cutStep?" done":(i===cutStep?" active":""));
-    chip.textContent=p.label;
+    chip.className="stepChip"+(isDone?" done":"")+((i===cutStep&&!editKey)||editKey===p.key?" active":"");
+    chip.textContent=p.label+(isDone?" ✓":(p.optional?" (opsional)":""));
+    if(clickable){
+      chip.style.cursor="pointer";
+      chip.title="Tap untuk gambar ulang bagian ini";
+      chip.addEventListener("click",function(){
+        if(!source)return;
+        editKey=p.key;
+        rigLocked=false;
+        cutPanel.style.display="block";
+        updateCutUI();
+        draw();
+      });
+    }
     stepList.appendChild(chip);
   });
+  if(editKey){
+    const part=PARTS.filter(function(pp){return pp.key===editKey;})[0];
+    cutHint.textContent=part?part.hint:"—";
+    cutStatus.className="status warn";
+    cutStatus.innerHTML="✏ Gambar ulang: <b>"+(part?part.label:"")+"</b>";
+    undoCutBtn.disabled=true;
+    skipPartBtn.style.display="none";
+    return;
+  }
   if(cutStep>=0&&cutStep<PARTS.length){
     cutHint.textContent=PARTS[cutStep].hint;
     cutStatus.className="status warn";
     cutStatus.innerHTML="⚠ Potong bagian: <b>"+PARTS[cutStep].label+"</b>";
     undoCutBtn.disabled=cutStep===0;
+    skipPartBtn.style.display=PARTS[cutStep].optional?"inline-block":"none";
   }else if(cutStep>=PARTS.length){
-    cutHint.textContent="Semua bagian sudah dipotong.";
+    cutHint.textContent="Semua bagian sudah dipotong. Tap chip mana pun untuk memperbaiki posisinya.";
     cutStatus.className="status ok";
     cutStatus.innerHTML="✓ Rig siap dibuat.";
+    skipPartBtn.style.display="none";
   }
 }
 
 /* ================= POINTER: CUTTING ================= */
 canvas.addEventListener("pointerdown",function(e){
   if(!source||rigLocked)return;
-  if(cutStep<0||cutStep>=PARTS.length)return;
+  if(!editKey&&(cutStep<0||cutStep>=PARTS.length))return;
   const p=canvasToSource(getCanvasPos(e));
   drag={x0:p.x,y0:p.y,x1:p.x,y1:p.y};
   canvas.setPointerCapture(e.pointerId);
@@ -314,6 +344,15 @@ function finishDrag(){
   const h=Math.abs(drag.y1-drag.y0);
   drag=null;
   if(w<6||h<6){draw();return;}
+  if(editKey){
+    cutBoxes[editKey]={x,y,w,h};
+    const done=cutStep>=PARTS.length;
+    editKey=null;
+    updateCutUI();
+    if(done){buildCutouts();}
+    draw();
+    return;
+  }
   const key=PARTS[cutStep].key;
   cutBoxes[key]={x,y,w,h};
   cutStep++;
@@ -326,7 +365,20 @@ function finishDrag(){
 canvas.addEventListener("pointerup",finishDrag);
 canvas.addEventListener("pointercancel",function(){drag=null;draw();});
 
+skipPartBtn.addEventListener("click",function(){
+  if(editKey)return;
+  if(cutStep<0||cutStep>=PARTS.length)return;
+  if(!PARTS[cutStep].optional)return;
+  cutStep++;
+  updateCutUI();
+  if(cutStep>=PARTS.length){
+    buildCutouts();
+  }
+  draw();
+});
+
 undoCutBtn.addEventListener("click",function(){
+  if(editKey)return;
   if(cutStep<=0)return;
   cutStep--;
   delete cutBoxes[PARTS[cutStep].key];
@@ -339,6 +391,7 @@ resetCutBtn.addEventListener("click",function(){
   cutouts={};
   rigLocked=false;
   cutStep=0;
+  editKey=null;
   updateCutUI();
   draw();
 });
@@ -392,6 +445,7 @@ function clearRectFeathered(canvas,x,y,w,h,feather,amount){
 function buildCutouts(){
   PARTS.forEach(function(p){
     const box=cutBoxes[p.key];
+    if(!box)return;
     const c=document.createElement("canvas");
     c.width=Math.max(1,Math.round(box.w));
     c.height=Math.max(1,Math.round(box.h));
@@ -433,12 +487,14 @@ function computePose(ph,amount,armAmount){
   const s=Math.sin(ph*Math.PI*2);
   const maxLeg=0.55;
   const maxArm=0.45;
+  const maxTail=0.3;
   return{
     torsoBob:-Math.abs(s)*bounds.h*.012,
     legL:s*maxLeg*amount,
     legR:-s*maxLeg*amount,
     armL:-s*maxArm*armAmount,
     armR:s*maxArm*armAmount,
+    tail:-s*maxTail*amount,
     front:s>=0?"L":"R"
   };
 }
@@ -480,6 +536,7 @@ function renderScene(target,size,pose){
   const frontArm=pose.front==="L"?"armL":"armR";
   const frontLeg=pose.front==="L"?"legL":"legR";
 
+  drawPart(target,view,"tail",pose.tail,pose.torsoBob);
   drawPart(target,view,backLeg,pose[backLeg],pose.torsoBob);
   drawPart(target,view,backArm,pose[backArm],pose.torsoBob);
   drawTorso(target,view,pose.torsoBob);
@@ -492,7 +549,7 @@ function renderScene(target,size,pose){
 }
 
 function drawPivots(target,view,pose){
-  const keys=["armL","armR","legL","legR"];
+  const keys=["armL","armR","legL","legR","tail"];
   target.save();
   keys.forEach(function(k){
     const cut=cutouts[k];
@@ -527,7 +584,7 @@ function draw(){
 
   const view=computeView(700);
 
-  if(cutStep>=0&&cutStep<PARTS.length&&!rigLocked){
+  if(!rigLocked&&(editKey||(cutStep>=0&&cutStep<PARTS.length))){
     // cutting mode: draw base image + confirmed boxes + active drag
     ctx.drawImage(source,view.ox,view.oy,source.width*view.scale,source.height*view.scale);
 
