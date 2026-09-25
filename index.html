@@ -173,10 +173,14 @@ let spriteSheet=null;
 
 const PARTS=[
   {key:"torso",label:"Torso+Kepala",hint:"Tarik kotak mengelilingi SELURUH badan: kepala, dada, perut, sampai pinggul. Boleh lebih besar dari badan asli, boleh menutupi lengan/kaki juga — itu aman."},
-  {key:"armL",label:"Lengan A",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
-  {key:"armR",label:"Lengan B",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
-  {key:"legL",label:"Kaki A",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
-  {key:"legR",label:"Kaki B",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
+  {key:"armL_up",label:"Lengan A - Atas",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai SIKU."},
+  {key:"armL_lo",label:"Lengan A - Bawah",hint:"Mulai dari SIKU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
+  {key:"armR_up",label:"Lengan B - Atas",hint:"Mulai dari BAHU (atas kotak), tarik ke bawah sampai SIKU."},
+  {key:"armR_lo",label:"Lengan B - Bawah",hint:"Mulai dari SIKU (atas kotak), tarik ke bawah sampai UJUNG TANGAN."},
+  {key:"legL_up",label:"Kaki A - Atas",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai LUTUT."},
+  {key:"legL_lo",label:"Kaki A - Bawah",hint:"Mulai dari LUTUT (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
+  {key:"legR_up",label:"Kaki B - Atas",hint:"Mulai dari PINGGUL (atas kotak), tarik ke bawah sampai LUTUT."},
+  {key:"legR_lo",label:"Kaki B - Bawah",hint:"Mulai dari LUTUT (atas kotak), tarik ke bawah sampai UJUNG KAKI."},
   {key:"tail",label:"Ekor",hint:"Mulai dari PANGKAL EKOR (dekat badan), tarik sampai UJUNG EKOR. Kalau tidak ada ekor, tekan LEWATI.",optional:true}
 ];
 
@@ -279,7 +283,7 @@ fileInput.addEventListener("change",function(e){
       const saved=loadSavedLayout();
       loadLayoutBtn.style.display=saved?"inline-block":"none";
       statusBox.className="status ok";
-      statusBox.innerHTML="✓ Karakter dimuat.<br>Potong tubuh jadi 5 bagian di bawah."+(saved?" Atau tap MUAT LAYOUT TERSIMPAN.":"");
+      statusBox.innerHTML="✓ Karakter dimuat.<br>Potong tubuh jadi 9 bagian (lengan & kaki 2 segmen: atas + bawah) di bawah."+(saved?" Atau tap MUAT LAYOUT TERSIMPAN.":"");
       draw();
     };
     img.src=ev.target.result;
@@ -578,42 +582,64 @@ function buildCutouts(){
   rigLocked=true;
   cutPanel.style.display="none";
   rigStatus.className="status ok";
-  rigStatus.innerHTML="✓ Rig siap.<br>Lengan & kaki berputar kaku di sendi, tidak lagi meregang.";
+  rigStatus.innerHTML="✓ Rig siap.<br>Lengan & kaki kini 2 segmen — siku & lutut ikut menekuk saat gerak.";
   saveCurrentLayout(true);
 }
 
 /* ================= POSE (pure function of phase) ================= */
 const MODE_NAMES={walk:"JALAN",run:"LARI",idle:"IDLE",jump:"LOMPAT"};
 
-function computeWalkPose(ph,amount,armAmount){
-  const s=Math.sin(ph*Math.PI*2);
-  const maxLeg=0.55;
-  const maxArm=0.45;
-  const maxTail=0.3;
+// Shapes a -1..1 sine value so it lingers near the extremes (foot contact)
+// and snaps through the middle faster (swing) — cheap substitute for a
+// proper contact/swing timing curve.
+function easeSwing(raw,power){
+  return Math.sign(raw)*Math.pow(Math.abs(raw),power);
+}
+
+// Computes a limb's joint (shoulder/hip) angle plus how much the second
+// segment (elbow/knee) bends, from one driving phase. The bend is clamped
+// to the half of the cycle where the limb is swinging, so it straightens
+// again on the planted/return half — a cheap stand-in for real knee/elbow
+// timing.
+function computeLimbAngleBend(rawPhase,jointAmp,bendAmp,easePower){
+  const raw=Math.sin(rawPhase);
   return{
-    torsoBob:-Math.abs(s)*bounds.h*.012,
-    legL:s*maxLeg*amount,
-    legR:-s*maxLeg*amount,
-    armL:-s*maxArm*armAmount,
-    armR:s*maxArm*armAmount,
-    tail:-s*maxTail*amount,
-    front:s>=0?"L":"R"
+    angle:easeSwing(raw,easePower)*jointAmp,
+    bend:bendAmp*Math.max(0,raw)
+  };
+}
+
+function computeWalkPose(ph,amount,armAmount){
+  const basePh=ph*Math.PI*2;
+  const rawHip=Math.sin(basePh);
+  const sLeg=easeSwing(rawHip,0.6);
+  const legL=computeLimbAngleBend(basePh,0.55*amount,0.75*amount,0.6);
+  const legR=computeLimbAngleBend(basePh+Math.PI,0.55*amount,0.75*amount,0.6);
+  const armR=computeLimbAngleBend(basePh+0.12,0.45*armAmount,0.5*armAmount,0.85);
+  const armL=computeLimbAngleBend(basePh+0.12+Math.PI,0.45*armAmount,0.5*armAmount,0.85);
+  return{
+    torsoBob:-Math.abs(sLeg)*bounds.h*.012,
+    legL:legL,legR:legR,armL:armL,armR:armR,
+    tail:-sLeg*0.3*amount,
+    lean:0.045+rawHip*0.02*amount,
+    front:rawHip>=0?"L":"R"
   };
 }
 
 function computeRunPose(ph,amount,armAmount){
-  const s=Math.sin(ph*Math.PI*2);
-  const maxLeg=0.9;
-  const maxArm=0.8;
-  const maxTail=0.45;
+  const basePh=ph*Math.PI*2;
+  const rawHip=Math.sin(basePh);
+  const sLeg=easeSwing(rawHip,0.85);
+  const legL=computeLimbAngleBend(basePh,0.9*amount,1.1*amount,0.85);
+  const legR=computeLimbAngleBend(basePh+Math.PI,0.9*amount,1.1*amount,0.85);
+  const armR=computeLimbAngleBend(basePh+0.1,0.8*armAmount,0.85*armAmount,0.95);
+  const armL=computeLimbAngleBend(basePh+0.1+Math.PI,0.8*armAmount,0.85*armAmount,0.95);
   return{
-    torsoBob:-Math.abs(s)*bounds.h*.022,
-    legL:s*maxLeg*amount,
-    legR:-s*maxLeg*amount,
-    armL:-s*maxArm*armAmount,
-    armR:s*maxArm*armAmount,
-    tail:-s*maxTail*amount,
-    front:s>=0?"L":"R"
+    torsoBob:-Math.abs(sLeg)*bounds.h*.022,
+    legL:legL,legR:legR,armL:armL,armR:armR,
+    tail:-sLeg*0.45*amount,
+    lean:0.11+rawHip*0.035*amount,
+    front:rawHip>=0?"L":"R"
   };
 }
 
@@ -621,25 +647,30 @@ function computeIdlePose(ph,amount,armAmount){
   const s=Math.sin(ph*Math.PI*2);
   return{
     torsoBob:-Math.abs(s)*bounds.h*.006,
-    legL:0,
-    legR:0,
-    armL:s*0.06*armAmount,
-    armR:-s*0.06*armAmount,
+    legL:{angle:0,bend:0},
+    legR:{angle:0,bend:0},
+    armL:{angle:s*0.06*armAmount,bend:0},
+    armR:{angle:-s*0.06*armAmount,bend:0},
     tail:s*0.15*amount,
+    lean:s*0.02,
     front:"L"
   };
 }
 
 function computeJumpPose(ph,amount,armAmount){
   const a=Math.sin(ph*Math.PI); // 0 -> 1 -> 0 across one phase loop (up then down)
-  const legTuck=a*0.6*amount;
+  const legAngle=-a*0.6*amount;
+  const legBend=a*0.85*amount;
+  const armAngle=-a*0.65*armAmount;
+  const armBend=a*0.35*armAmount;
   return{
     torsoBob:-a*bounds.h*.14,
-    legL:-legTuck,
-    legR:-legTuck,
-    armL:-a*0.65*armAmount,
-    armR:-a*0.65*armAmount,
+    legL:{angle:legAngle,bend:legBend},
+    legR:{angle:legAngle,bend:legBend},
+    armL:{angle:armAngle,bend:armBend},
+    armR:{angle:armAngle,bend:armBend},
     tail:-a*0.3*amount,
+    lean:0.05*(1-a)-a*0.03,
     front:"L"
   };
 }
@@ -676,6 +707,56 @@ function drawTorso(target,view,bobY){
   target.drawImage(cut.canvas,topLeft.x,topLeft.y,cut.w*view.scale,cut.h*view.scale);
 }
 
+// Draws a 2-segment limb as a bone chain: upper segment rotates around the
+// shoulder/hip, then the lower segment is drawn in the ALREADY-rotated local
+// space translated down by the upper segment's length, so its own extra
+// "bend" rotation is relative to the upper segment (real hinge behaviour)
+// rather than to the world.
+function drawLimb(target,view,baseKey,angle,bend,bobY){
+  const upper=cutouts[baseKey+"_up"];
+  if(!upper)return;
+  const pivot=toScreen(view,upper.anchorX,upper.anchorY+(bobY||0));
+  target.save();
+  target.translate(pivot.x,pivot.y);
+  target.rotate(angle||0);
+  target.drawImage(
+    upper.canvas,
+    -(upper.w/2)*view.scale,
+    0,
+    upper.w*view.scale,
+    upper.h*view.scale
+  );
+  const lower=cutouts[baseKey+"_lo"];
+  if(lower){
+    target.translate(0,upper.h*view.scale);
+    target.rotate(bend||0);
+    target.drawImage(
+      lower.canvas,
+      -(lower.w/2)*view.scale,
+      0,
+      lower.w*view.scale,
+      lower.h*view.scale
+    );
+  }
+  target.restore();
+}
+
+function getHipPivotScreen(view){
+  const legL=cutouts.legL_up,legR=cutouts.legR_up,torso=cutouts.torso;
+  let sx,sy;
+  if(legL&&legR){
+    sx=(legL.anchorX+legR.anchorX)/2;
+    sy=(legL.anchorY+legR.anchorY)/2;
+  }else if(torso){
+    sx=torso.anchorX;
+    sy=torso.anchorY+torso.h*0.85;
+  }else{
+    sx=bounds.x+bounds.w/2;
+    sy=bounds.y+bounds.h*0.6;
+  }
+  return toScreen(view,sx,sy);
+}
+
 function renderScene(target,size,pose){
   target.setTransform(1,0,0,1,0,0);
   target.clearRect(0,0,size,size);
@@ -688,36 +769,78 @@ function renderScene(target,size,pose){
   const frontArm=pose.front==="L"?"armL":"armR";
   const frontLeg=pose.front==="L"?"legL":"legR";
 
+  const pivot=getHipPivotScreen(view);
+  target.save();
+  target.translate(pivot.x,pivot.y);
+  target.rotate(pose.lean||0);
+  target.translate(-pivot.x,-pivot.y);
+
   drawPart(target,view,"tail",pose.tail,pose.torsoBob);
-  drawPart(target,view,backLeg,pose[backLeg],pose.torsoBob);
-  drawPart(target,view,backArm,pose[backArm],pose.torsoBob);
+  drawLimb(target,view,backLeg,pose[backLeg].angle,pose[backLeg].bend,pose.torsoBob);
+  drawLimb(target,view,backArm,pose[backArm].angle,pose[backArm].bend,pose.torsoBob);
   drawTorso(target,view,pose.torsoBob);
-  drawPart(target,view,frontArm,pose[frontArm],pose.torsoBob);
-  drawPart(target,view,frontLeg,pose[frontLeg],pose.torsoBob);
+  drawLimb(target,view,frontArm,pose[frontArm].angle,pose[frontArm].bend,pose.torsoBob);
+  drawLimb(target,view,frontLeg,pose[frontLeg].angle,pose[frontLeg].bend,pose.torsoBob);
 
   if(showRig&&size===700){
     drawPivots(target,view,pose);
   }
+  target.restore();
 }
 
 function drawPivots(target,view,pose){
-  const keys=["armL","armR","legL","legR","tail"];
+  const bases=["legL","legR","armL","armR"];
   target.save();
-  keys.forEach(function(k){
-    const cut=cutouts[k];
-    if(!cut)return;
-    const p=toScreen(view,cut.anchorX,cut.anchorY+pose.torsoBob);
+  bases.forEach(function(key){
+    const upper=cutouts[key+"_up"];
+    if(!upper)return;
+    const limbPose=pose[key];
+    const p=toScreen(view,upper.anchorX,upper.anchorY+pose.torsoBob);
+    target.beginPath();
+    target.arc(p.x,p.y,7,0,Math.PI*2);
+    target.fillStyle="#ff4d6d";
+    target.fill();
+    const jointLen=upper.h*view.scale;
+    const ex=p.x+Math.sin(limbPose.angle)*jointLen;
+    const ey=p.y+Math.cos(limbPose.angle)*jointLen;
+    target.beginPath();
+    target.moveTo(p.x,p.y);
+    target.lineTo(ex,ey);
+    target.strokeStyle="#4da6ff";
+    target.lineWidth=3;
+    target.stroke();
+    const lower=cutouts[key+"_lo"];
+    if(lower){
+      target.beginPath();
+      target.arc(ex,ey,5,0,Math.PI*2);
+      target.fillStyle="#ffd36b";
+      target.fill();
+      const totalAngle=limbPose.angle+limbPose.bend;
+      const lowerLen=lower.h*view.scale;
+      const hx=ex+Math.sin(totalAngle)*lowerLen;
+      const hy=ey+Math.cos(totalAngle)*lowerLen;
+      target.beginPath();
+      target.moveTo(ex,ey);
+      target.lineTo(hx,hy);
+      target.strokeStyle="#4da6ff";
+      target.lineWidth=3;
+      target.stroke();
+    }
+  });
+  const tailCut=cutouts.tail;
+  if(tailCut){
+    const p=toScreen(view,tailCut.anchorX,tailCut.anchorY+pose.torsoBob);
     target.beginPath();
     target.arc(p.x,p.y,7,0,Math.PI*2);
     target.fillStyle="#ff4d6d";
     target.fill();
     target.beginPath();
     target.moveTo(p.x,p.y);
-    target.lineTo(p.x+Math.sin(pose[k])*28,p.y+Math.cos(pose[k])*28);
+    target.lineTo(p.x+Math.sin(pose.tail)*28,p.y+Math.cos(pose.tail)*28);
     target.strokeStyle="#4da6ff";
     target.lineWidth=3;
     target.stroke();
-  });
+  }
   target.restore();
 }
 
