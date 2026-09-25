@@ -115,6 +115,7 @@ input[type=file]{display:none;}
 <div class="row"><span>Speed</span><input id="speed" type="range" min="0.3" max="2" step="0.1" value="0.8"><b id="speedText">0.8</b></div>
 <div class="row"><span>Step</span><input id="step" type="range" min="0" max="1" step="0.05" value="0.65"><b id="stepText">0.65</b></div>
 <div class="row"><span>Arm</span><input id="arm" type="range" min="0" max="1" step="0.05" value="0.55"><b id="armText">0.55</b></div>
+<div class="row"><span>Ghost</span><input id="ghost" type="range" min="0" max="1" step="0.05" value="0.55"><b id="ghostText">0.55</b></div>
 <div id="rigStatus" class="status">Rig belum siap.</div>
 </div>
 
@@ -144,9 +145,11 @@ const preview=document.getElementById("preview");
 const speedInput=document.getElementById("speed");
 const stepInput=document.getElementById("step");
 const armInput=document.getElementById("arm");
+const ghostInput=document.getElementById("ghost");
 const speedText=document.getElementById("speedText");
 const stepText=document.getElementById("stepText");
 const armText=document.getElementById("armText");
+const ghostText=document.getElementById("ghostText");
 const cutPanel=document.getElementById("cutPanel");
 const cutHint=document.getElementById("cutHint");
 const cutStatus=document.getElementById("cutStatus");
@@ -577,12 +580,27 @@ function buildCutouts(){
   if(torsoCut){
     const torsoFeather=Math.min(10,Math.max(2,Math.round(Math.min(torsoCut.canvas.width,torsoCut.canvas.height)*0.02)));
     featherEdges(torsoCut.canvas,torsoFeather);
+
+    // Redam "ghost limb": torso tetap utuh (tidak dilubangi penuh, supaya
+    // tidak bolong untuk karakter humanoid), tapi piksel lengan/kaki yang
+    // ikut terpotong di dalam kotak torso ditipiskan sebagian dengan feather
+    // besar. Hasilnya limb asli di posisi diam jadi samar, bukan hilang total
+    // atau menumpuk penuh dengan limb yang sedang bergerak.
+    const limbKeys=["armL_up","armL_lo","armR_up","armR_lo","legL_up","legL_lo","legR_up","legR_lo"];
+    limbKeys.forEach(function(lk){
+      const box=cutBoxes[lk];
+      if(!box)return;
+      const localX=box.x-cutBoxes.torso.x;
+      const localY=box.y-cutBoxes.torso.y;
+      const feather=Math.max(8,Math.round(Math.min(box.w,box.h)*0.3));
+      clearRectFeathered(torsoCut.canvas,localX,localY,box.w,box.h,feather,Number(ghostInput.value));
+    });
   }
 
   rigLocked=true;
   cutPanel.style.display="none";
   rigStatus.className="status ok";
-  rigStatus.innerHTML="✓ Rig siap.<br>Lengan & kaki kini 2 segmen — siku & lutut ikut menekuk saat gerak.";
+  rigStatus.innerHTML="✓ Rig siap.<br>Lengan & kaki kini 2 segmen — siku & lutut ikut menekuk saat gerak.<br>Geser slider Ghost kalau limb diam masih terlihat menumpuk di torso.";
   saveCurrentLayout(true);
 }
 
@@ -943,6 +961,12 @@ document.getElementById("original").addEventListener("click",function(){
 speedInput.addEventListener("input",function(){speedText.textContent=Number(speedInput.value).toFixed(1);});
 stepInput.addEventListener("input",function(){stepText.textContent=Number(stepInput.value).toFixed(2);if(!playing)draw();});
 armInput.addEventListener("input",function(){armText.textContent=Number(armInput.value).toFixed(2);if(!playing)draw();});
+ghostInput.addEventListener("change",function(){
+  ghostText.textContent=Number(ghostInput.value).toFixed(2);
+  if(rigLocked)buildCutouts();
+  draw();
+});
+ghostInput.addEventListener("input",function(){ghostText.textContent=Number(ghostInput.value).toFixed(2);});
 
 /* ================= ANIMATION LOOP ================= */
 function loop(now){
