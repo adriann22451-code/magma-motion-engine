@@ -364,9 +364,18 @@ function featherEdges(canvas,feather){
   cctx.restore();
 }
 
-function clearRectFeathered(canvas,x,y,w,h,feather){
+function clearRectFeathered(canvas,x,y,w,h,feather,amount){
+  amount=(amount===undefined)?1:amount;
   const cctx=canvas.getContext("2d");
-  if(feather<=0){cctx.clearRect(x,y,w,h);return;}
+  if(feather<=0){
+    cctx.save();
+    cctx.globalAlpha=amount;
+    cctx.globalCompositeOperation="destination-out";
+    cctx.fillStyle="#000";
+    cctx.fillRect(x,y,w,h);
+    cctx.restore();
+    return;
+  }
   const mask=document.createElement("canvas");
   mask.width=canvas.width; mask.height=canvas.height;
   const mctx=mask.getContext("2d");
@@ -374,6 +383,7 @@ function clearRectFeathered(canvas,x,y,w,h,feather){
   mctx.fillStyle="#fff";
   mctx.fillRect(x,y,w,h);
   cctx.save();
+  cctx.globalAlpha=amount;
   cctx.globalCompositeOperation="destination-out";
   cctx.drawImage(mask,0,0);
   cctx.restore();
@@ -420,7 +430,7 @@ function buildCutouts(){
       const lx=Math.round(ix-torsoBox.x);
       const ly=Math.round(iy-torsoBox.y);
       const feather=Math.min(8,Math.max(2,Math.round(Math.min(iw,ih)*0.08)));
-      clearRectFeathered(torsoCut.canvas,lx,ly,Math.ceil(iw),Math.ceil(ih),feather);
+      clearRectFeathered(torsoCut.canvas,lx,ly,Math.ceil(iw),Math.ceil(ih),feather,0.6);
     });
     const torsoFeather=Math.min(10,Math.max(2,Math.round(Math.min(torsoCut.canvas.width,torsoCut.canvas.height)*0.02)));
     featherEdges(torsoCut.canvas,torsoFeather);
