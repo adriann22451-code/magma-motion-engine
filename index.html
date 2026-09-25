@@ -93,15 +93,23 @@ input[type=file]{display:none;}
 <button id="undoCut" class="orange">◀ ULANGI BAGIAN INI</button>
 <button id="skipPart" class="orange" style="display:none;">⏭ LEWATI (TIDAK ADA)</button>
 <button id="resetCut" class="red">↺ RESET SEMUA POTONGAN</button>
+<button id="loadLayout" class="purple" style="display:none;">📥 MUAT LAYOUT TERSIMPAN</button>
 <div id="cutStatus" class="status">Mulai dengan menarik kotak di gambar. Tap chip nama bagian yang sudah selesai untuk gambar ulang kotaknya.</div>
 </div>
 
 <!-- CONTROLS -->
 <div class="panel">
+<div class="row"><span>Animasi</span><select id="animMode" style="flex:1;padding:9px;border-radius:8px;border:0;background:#1c2634;color:#fff;font-weight:bold;font-size:13px;">
+<option value="walk">🚶 Jalan</option>
+<option value="run">🏃 Lari</option>
+<option value="idle">🧍 Idle</option>
+<option value="jump">⬆ Lompat</option>
+</select></div>
 <button id="rig" class="orange">🦴 SHOW RIG</button>
 <button id="walk" class="green">▶ WALK</button>
 <button id="stop" class="red">■ STOP</button>
 <button id="editCuts" class="purple">✏ EDIT POTONGAN</button>
+<button id="saveLayout" class="purple">💾 SIMPAN LAYOUT</button>
 <br>
 <button id="generate" class="blue">🎞 GENERATE 8 FRAME</button>
 <div class="row"><span>Speed</span><input id="speed" type="range" min="0.3" max="2" step="0.1" value="0.8"><b id="speedText">0.8</b></div>
@@ -146,9 +154,13 @@ const stepList=document.getElementById("stepList");
 const undoCutBtn=document.getElementById("undoCut");
 const skipPartBtn=document.getElementById("skipPart");
 const resetCutBtn=document.getElementById("resetCut");
+const loadLayoutBtn=document.getElementById("loadLayout");
+const saveLayoutBtn=document.getElementById("saveLayout");
 const reviewCanvas=document.getElementById("reviewCanvas");
 const reviewCtx=reviewCanvas.getContext("2d");
 const reviewToggleBtn=document.getElementById("reviewToggle");
+const animModeSelect=document.getElementById("animMode");
+const walkBtn=document.getElementById("walk");
 
 /* ================= STATE ================= */
 let source=null;
@@ -180,6 +192,76 @@ let reviewPlaying=false;
 let reviewIndex=0;
 let reviewTimer=0;
 
+/* ================= LAYOUT SAVE/LOAD ================= */
+const LAYOUT_KEY="aiMotionEngineV16_layout";
+
+function serializeLayout(){
+  const data={};
+  Object.keys(cutBoxes).forEach(function(key){
+    const b=cutBoxes[key];
+    data[key]={
+      fx:(b.x-bounds.x)/bounds.w,
+      fy:(b.y-bounds.y)/bounds.h,
+      fw:b.w/bounds.w,
+      fh:b.h/bounds.h
+    };
+  });
+  return data;
+}
+
+function saveCurrentLayout(silent){
+  if(!source||Object.keys(cutBoxes).length===0){
+    if(!silent){
+      spriteStatus.className="status err";
+      spriteStatus.innerHTML="Potong minimal 1 bagian dulu sebelum simpan.";
+    }
+    return;
+  }
+  try{
+    localStorage.setItem(LAYOUT_KEY,JSON.stringify(serializeLayout()));
+    if(!silent){
+      spriteStatus.className="status ok";
+      spriteStatus.innerHTML="✓ Layout potongan disimpan di browser ini.";
+    }
+  }catch(err){
+    if(!silent){
+      spriteStatus.className="status err";
+      spriteStatus.innerHTML="Gagal menyimpan layout (storage browser penuh/diblokir).";
+    }
+  }
+}
+
+function loadSavedLayout(){
+  try{
+    const raw=localStorage.getItem(LAYOUT_KEY);
+    if(!raw)return null;
+    return JSON.parse(raw);
+  }catch(err){
+    return null;
+  }
+}
+
+function applyLayoutToCurrentImage(data){
+  cutBoxes={};
+  Object.keys(data).forEach(function(key){
+    if(!PARTS.some(function(p){return p.key===key;}))return;
+    const f=data[key];
+    cutBoxes[key]={
+      x:bounds.x+f.fx*bounds.w,
+      y:bounds.y+f.fy*bounds.h,
+      w:f.fw*bounds.w,
+      h:f.fh*bounds.h
+    };
+  });
+  cutStep=PARTS.length;
+  editKey=null;
+  updateCutUI();
+  buildCutouts();
+  draw();
+  statusBox.className="status ok";
+  statusBox.innerHTML="✓ Layout tersimpan dimuat & disesuaikan ke gambar ini.<br>Cek posisinya, tap chip bagian mana pun kalau perlu digambar ulang.";
+}
+
 /* ================= UPLOAD ================= */
 fileInput.addEventListener("change",function(e){
   const file=e.target.files[0];
@@ -194,8 +276,10 @@ fileInput.addEventListener("change",function(e){
       cutPanel.style.display="block";
       rigLocked=false;
       updateCutUI();
+      const saved=loadSavedLayout();
+      loadLayoutBtn.style.display=saved?"inline-block":"none";
       statusBox.className="status ok";
-      statusBox.innerHTML="✓ Karakter dimuat.<br>Potong tubuh jadi 5 bagian di bawah.";
+      statusBox.innerHTML="✓ Karakter dimuat.<br>Potong tubuh jadi 5 bagian di bawah."+(saved?" Atau tap MUAT LAYOUT TERSIMPAN.":"");
       draw();
     };
     img.src=ev.target.result;
@@ -396,6 +480,21 @@ resetCutBtn.addEventListener("click",function(){
   draw();
 });
 
+loadLayoutBtn.addEventListener("click",function(){
+  if(!source)return;
+  const saved=loadSavedLayout();
+  if(!saved){
+    statusBox.className="status err";
+    statusBox.innerHTML="Tidak ada layout tersimpan.";
+    return;
+  }
+  applyLayoutToCurrentImage(saved);
+});
+
+saveLayoutBtn.addEventListener("click",function(){
+  saveCurrentLayout(false);
+});
+
 /* ================= BUILD CUTOUTS ================= */
 function featherEdges(canvas,feather){
   const w=canvas.width,h=canvas.height;
@@ -480,10 +579,13 @@ function buildCutouts(){
   cutPanel.style.display="none";
   rigStatus.className="status ok";
   rigStatus.innerHTML="✓ Rig siap.<br>Lengan & kaki berputar kaku di sendi, tidak lagi meregang.";
+  saveCurrentLayout(true);
 }
 
 /* ================= POSE (pure function of phase) ================= */
-function computePose(ph,amount,armAmount){
+const MODE_NAMES={walk:"JALAN",run:"LARI",idle:"IDLE",jump:"LOMPAT"};
+
+function computeWalkPose(ph,amount,armAmount){
   const s=Math.sin(ph*Math.PI*2);
   const maxLeg=0.55;
   const maxArm=0.45;
@@ -497,6 +599,56 @@ function computePose(ph,amount,armAmount){
     tail:-s*maxTail*amount,
     front:s>=0?"L":"R"
   };
+}
+
+function computeRunPose(ph,amount,armAmount){
+  const s=Math.sin(ph*Math.PI*2);
+  const maxLeg=0.9;
+  const maxArm=0.8;
+  const maxTail=0.45;
+  return{
+    torsoBob:-Math.abs(s)*bounds.h*.022,
+    legL:s*maxLeg*amount,
+    legR:-s*maxLeg*amount,
+    armL:-s*maxArm*armAmount,
+    armR:s*maxArm*armAmount,
+    tail:-s*maxTail*amount,
+    front:s>=0?"L":"R"
+  };
+}
+
+function computeIdlePose(ph,amount,armAmount){
+  const s=Math.sin(ph*Math.PI*2);
+  return{
+    torsoBob:-Math.abs(s)*bounds.h*.006,
+    legL:0,
+    legR:0,
+    armL:s*0.06*armAmount,
+    armR:-s*0.06*armAmount,
+    tail:s*0.15*amount,
+    front:"L"
+  };
+}
+
+function computeJumpPose(ph,amount,armAmount){
+  const a=Math.sin(ph*Math.PI); // 0 -> 1 -> 0 across one phase loop (up then down)
+  const legTuck=a*0.6*amount;
+  return{
+    torsoBob:-a*bounds.h*.14,
+    legL:-legTuck,
+    legR:-legTuck,
+    armL:-a*0.65*armAmount,
+    armR:-a*0.65*armAmount,
+    tail:-a*0.3*amount,
+    front:"L"
+  };
+}
+
+function computePose(mode,ph,amount,armAmount){
+  if(mode==="run")return computeRunPose(ph,amount,armAmount);
+  if(mode==="idle")return computeIdlePose(ph,amount,armAmount);
+  if(mode==="jump")return computeJumpPose(ph,amount,armAmount);
+  return computeWalkPose(ph,amount,armAmount);
 }
 
 /* ================= RENDER PART ================= */
@@ -614,7 +766,7 @@ function draw(){
     return;
   }
 
-  const pose=computePose(phase,Number(stepInput.value),Number(armInput.value));
+  const pose=computePose(animModeSelect.value,phase,Number(stepInput.value),Number(armInput.value));
   renderScene(ctx,700,pose);
 }
 
@@ -624,7 +776,16 @@ document.getElementById("walk").addEventListener("click",function(){
   if(!rigLocked){statusBox.className="status warn";statusBox.innerHTML="⚠ Selesaikan potongan rig dulu.";return;}
   playing=true;
   statusBox.className="status ok";
-  statusBox.innerHTML="▶ WALK aktif — limb rigid rotation.";
+  statusBox.innerHTML="▶ "+MODE_NAMES[animModeSelect.value]+" aktif — limb rigid rotation.";
+});
+animModeSelect.addEventListener("change",function(){
+  const labels={walk:"▶ JALAN",run:"▶ LARI",idle:"▶ IDLE",jump:"▶ LOMPAT"};
+  walkBtn.textContent=labels[animModeSelect.value]||"▶ MAINKAN";
+  if(playing){
+    statusBox.className="status ok";
+    statusBox.innerHTML="▶ "+MODE_NAMES[animModeSelect.value]+" aktif — limb rigid rotation.";
+  }
+  if(!playing)draw();
 });
 document.getElementById("stop").addEventListener("click",function(){
   playing=false; phase=0; draw();
@@ -710,7 +871,7 @@ function makeFrame(framePhase,size){
   const fctx=frame.getContext("2d");
   fctx.imageSmoothingEnabled=true;
   fctx.imageSmoothingQuality="high";
-  const pose=computePose(framePhase,Number(stepInput.value),Number(armInput.value));
+  const pose=computePose(animModeSelect.value,framePhase,Number(stepInput.value),Number(armInput.value));
   renderScene(fctx,size,pose);
   return frame;
 }
@@ -750,7 +911,8 @@ document.getElementById("generate").addEventListener("click",function(){
   }
 
   spriteStatus.className="status ok";
-  spriteStatus.innerHTML="✓ 8 frame walk cycle dibuat.<br>Sprite sheet: "+spriteSheet.width+" × "+spriteSheet.height+" px.";
+  spriteStatus.innerHTML="✓ 8 frame "+MODE_NAMES[animModeSelect.value]+" cycle dibuat.<br>Sprite sheet: "+spriteSheet.width+" × "+spriteSheet.height+" px.";
+  spriteSheet.animMode=animModeSelect.value;
   drawReviewFrame();
 });
 
@@ -760,7 +922,8 @@ document.getElementById("download").addEventListener("click",function(){
   spriteSheet.toBlob(function(blob){
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");
-    a.href=url; a.download="character_walk_V16.png";
+    const modeTag=spriteSheet.animMode||"walk";
+    a.href=url; a.download="character_"+modeTag+"_V16.png";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){URL.revokeObjectURL(url);},1000);
   },"image/png");
@@ -772,6 +935,7 @@ document.getElementById("reset").addEventListener("click",function(){
   playing=false; showRig=false; phase=0;
   cutPanel.style.display="none";
   resetCutoutState();
+  loadLayoutBtn.style.display="none";
   ctx.clearRect(0,0,700,700);
   statusBox.className="status";
   statusBox.innerHTML="Pilih PNG karakter.";
